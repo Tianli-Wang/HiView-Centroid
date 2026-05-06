@@ -1,0 +1,124 @@
+<div class="content">
+    <div id="example_title"></div>
+    <div id="main_view"></div>
+    <div id="example_code"></div>
+</div>
+
+<!--CODE-->
+
+<td colspan=4>
+
+  <h3>Upload file using Ajax </h3>
+  <form method="post" id="filename" name="filename" onsubmit="return uploadFile();">
+	<label>Select a file:</label><br>
+	<input type="file" id="file" name="file" required />
+	<input type="submit" value="Upload" />
+  </form>
+  <div id="upprog"></div>
+  <div id="wrprog"></div>
+  <br><br>
+  <button id="reboot-id" class="btn" onclick="">REBOOT</button>
+</td>
+
+<!--CODE-->
+<script>
+$(function () {
+  
+    $("#reboot-id").click(function(){
+      
+      w2confirm('Confirm reboot device?', 
+      function (btn) 
+      {
+         console.log(btn); 
+         if(btn == 'Yes')
+         {
+            rebootDevice();
+         }
+      })
+      
+    });
+  
+});
+
+
+function rebootDevice() {
+  const req = {
+    "id": "GSF_ID_BSP_UPG",
+    "args":"G0C0S1",
+    "data":{}
+  }
+  
+  $.ajax({
+    async: true,
+    type: "post",
+    url:  '/control?id=' + req.id + '&' + 'args=' + req.args,
+    data: JSON.stringify(req.data),
+    contentType: 'application/json', // req body type;
+    dataType: "json", // rsp body type;
+    success: function (data) {
+      rsp_edit.set(data);
+    },
+    error: function () {
+      //TODO;
+    }
+  });
+}
+
+//upgrade
+function updateProgress(evt) {
+  if (evt.lengthComputable) {
+	document.getElementById("upprog").textContent =
+		  "Uploaded " + evt.loaded + " of " + evt.total + " bytes";
+  }
+}
+
+function uploadFile() {
+  //var file_data = new FormData(document.getElementById('filename'));
+  var file_data = new FormData();
+  
+  // formData.append('userpic[]', myFileInput.files[0], 'chris1.jpg');
+  // formData.append('userpic[]', myFileInput.files[1], 'chris2.jpg');
+  //file_data.append(file.name, file.files[0], file.files[0].name);
+  file_data.append("my_var_name", file.files[0], file.files[0].name);
+  
+  var timer;
+  $.ajax({
+  	url: 'http://' + window.location.hostname + ':' + window.location.port + '/upload',
+  	type: "POST",
+  	data: file_data,
+  	processData: false,
+  	contentType: false,
+  	cache: false,
+  	xhr: function() {
+  	  myXhr = $.ajaxSettings.xhr();
+  	  if(myXhr.upload){
+  		  myXhr.upload.addEventListener('progress',updateProgress, false); // for handling the progress of the upload
+  	  }
+  	  return myXhr;
+  	},
+    }).done(function(data) {
+      document.getElementById("upprog").textContent = "Result: " + data;
+      timer = window.setInterval(function(){$.ajax(getting)},3000);   //每三秒调用一次ajax
+    });
+  return false;
+}
+
+ var getting = {
+     type : "post",
+     url :  "/stat?id=GSF_ID_BSP_UPG&args=G0C0S0",
+     contentType: 'application/json', // req body type;
+     data : {},
+     dataType : "json", // rsp body type
+     success : function(data) {
+     	  $("#wrprog").text(JSON.stringify(data));
+     	  if(data.progress < 0 || data.progress >= 100)
+     	  {
+     	    window.clearInterval(timer);
+     	  }
+     },
+     error:function(){
+     	window.clearInterval(timer);
+     }
+ };
+
+</script>

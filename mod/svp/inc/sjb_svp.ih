@@ -1,0 +1,90 @@
+#pragma pack(push, 4)
+
+STRUCT(gsf_svp_t)
+{
+  FIELD(int, md_alg);
+  FIELD(int, lpr_alg);
+  FIELD(int, yolo_alg);
+  FIELD(int, centroid_alg); // 光斑质心算法开关：0 关闭，>0 启动质心线程并通过串口输出。
+#if defined(GSF_CPU_3519d)
+#warning "GSF_CPU_3519d add vpssGrp,vpssChn"
+  ARRAY(int, vpssGrp, GSF_SVP_CHN);
+  ARRAY(int, vpssChn, GSF_SVP_CHN);
+#endif  
+};
+
+STRUCT(gsf_point_t)
+{
+  FIELD(float, x);
+  FIELD(float, y);
+};
+
+STRUCT(gsf_polygon_t)
+{
+  FIELD(int, point_num);
+  ARRAY(gsf_point_t, points, 10);
+};
+
+STRUCT(gsf_polygons_t)
+{
+  FIELD(int, polygon_num);
+  ARRAY(gsf_polygon_t, polygons, 4);
+};
+
+//=== svp alg config ===//
+
+STRUCT(gsf_svp_md_t)
+{
+  FIELD(float, thr);
+  FIELD(gsf_polygons_t, det_polygon);   // detect
+  //FIELD(gsf_polygons_t, inv_polygon); // invalid 
+};
+
+STRUCT(gsf_svp_lpr_t)
+{
+  FIELD(float, thr);
+  FIELD(gsf_polygons_t, det_polygon);   // detect
+  //FIELD(gsf_polygons_t, inv_polygon); // invalid 
+};
+
+STRUCT(gsf_svp_yolo_t)
+{
+  FIELD(float, thr);
+  FIELD(gsf_polygons_t, det_polygon);   // detect
+  //FIELD(gsf_polygons_t, inv_polygon); // invalid 
+};
+
+STRUCT(gsf_svp_cface_t)
+{
+  FIELD(float, thr);
+  FIELD(gsf_polygons_t, det_polygon);   // detect
+  //FIELD(gsf_polygons_t, inv_polygon); // invalid 
+};
+
+STRUCT(gsf_svp_centroid_t)
+{
+  FIELD(int, vpss_grp);      // 抓帧 VPSS 组，Hi3516DV300 默认使用 0。
+  FIELD(int, vpss_chn);      // 抓帧 VPSS 通道，当前工程算法通道默认使用 1。
+  FIELD(int, threshold);     // 亮斑二值化阈值：1~254 固定阈值，其它值使用 OTSU 自动阈值。
+  FIELD(int, min_area);      // 最小亮斑面积，低于该面积认为是噪声。
+  FIELD(int, interval_ms);   // 串口输出间隔，单位毫秒，过小会占用更多 VPSS 和 CPU 时间。
+  FIELD(int, baudrate);      // 串口波特率，常用 115200。
+  FIELD(int, print_no_spot); // 是否输出未检测到亮斑的帧：0 只输出有效质心，1 输出所有检测结果。
+  STRING(uart_dev, 64);      // 串口设备，例如 /dev/ttyAMA0、/dev/ttyAMA1 或 /dev/ttyS0。
+};
+
+
+// svp_parm.json;
+
+STRUCT(gsf_svp_parm_t)
+{
+  FIELD(gsf_svp_t, svp);
+  FIELD(gsf_svp_md_t, md);
+  FIELD(gsf_svp_lpr_t, lpr);
+  FIELD(gsf_svp_yolo_t, yolo);
+  FIELD(gsf_svp_cface_t, cface);
+  FIELD(gsf_svp_centroid_t, centroid);
+};
+
+
+#pragma pack(pop)

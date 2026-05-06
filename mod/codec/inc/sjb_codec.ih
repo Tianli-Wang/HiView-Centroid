@@ -1,0 +1,240 @@
+#pragma pack(push, 4)
+
+STRUCT(gsf_venc_t)
+{
+  FIELD(int, en);
+  FIELD(int, type);
+  FIELD(int, width);
+  FIELD(int, height);
+  FIELD(int, fps);
+  FIELD(int, gop);
+  FIELD(int, flow);
+  FIELD(int, bitrate);
+  FIELD(int, profile);//0: BL; 1:MP; 2:HP
+  FIELD(int, qp);
+  FIELD(int, lowdelay);
+  FIELD(int, rcmode); // 0: CBR, 1: VBR, 2: AVBR, 3: QVBR, 4: CVBR, 5: QPMAP, 6: FIXQP
+};
+
+
+STRUCT(gsf_aenc_t)
+{
+  FIELD(int, en);     // 1: enable, 0: disable;
+  FIELD(int, type);   // GSF_ENC_AAC, GSF_ENC_G711A, ...
+  FIELD(int, stereo); // stereo: 1, mono: 0;
+  FIELD(int, sprate); // 48k, 8k ...;
+  FIELD(int, vol);    // reserve;
+};
+
+STRUCT(gsf_osd_t)
+{
+  FIELD(int, en);
+  FIELD(int, type);
+  FIELD(int, fontsize);
+  ARRAY(int, point, 2);
+  ARRAY(int, wh, 2);
+  STRING(text, 4096);
+};
+
+STRUCT(gsf_vmask_t)
+{
+  FIELD(int, en);
+  ARRAY(int, rect, 4);
+  FIELD(int, color);
+};
+
+STRUCT(gsf_vi_t)
+{
+  FIELD(int, wdr);
+  FIELD(int, fps);
+  FIELD(int, res);
+  FIELD(int, avs);
+  FIELD(int, lowdelay);
+  FIELD(int, hnr);
+  FIELD(int, flip);
+  FIELD(int, dis);
+};
+
+STRUCT(gsf_vo_t)
+{
+  FIELD(int, intf);  // -1: NONE, 0: HDMI,  1: MIPI
+  FIELD(int, sync);  // 0: 1080P, 1: 4K
+};
+
+
+STRUCT(gsf_lenscfg_t)
+{
+  FIELD(int, lens); // lens-type 0: ldm lens, 1: sony lens, 2: computar, 3: hiview;
+  STRING(uart, 32); // uart-name "ttyAMA2" or "ttyAMA4";
+  FIELD(int, ircut);// 0: manual, 1: auto, 2: cds;
+  FIELD(int, ircut_rev);// 0: none, 1: ircut reversed;
+};
+
+STRUCT(gsf_lens_t)
+{
+  FIELD(int, cmd); // GSF_LENS_CMD_E
+  FIELD(int, arg1);
+  FIELD(int, arg2);
+};
+
+STRUCT(gsf_img_csc_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, u8Hue);
+  FIELD(int, u8Luma);
+  FIELD(int, u8Contr);
+  FIELD(int, u8Satu);
+};
+
+STRUCT(gsf_img_ae_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, u8Speed);
+  FIELD(int, u8Compensation);
+  FIELD(int, SysGainRangeMax);
+  FIELD(int, SysGainRangeMin);
+  FIELD(int, ExpTimeRangeMax);
+  FIELD(int, ExpTimeRangeMin);
+};
+
+
+STRUCT(gsf_img_dehaze_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, u8strength);
+};
+
+STRUCT(gsf_img_sharpen_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, u16TextureFreq);
+  FIELD(int, u16EdgeFreq);
+  FIELD(int, u8DetailCtrl);
+};
+
+
+STRUCT(gsf_img_hlc_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, u8LumaThr);
+  FIELD(int, u8LumaTarget);
+};
+
+
+STRUCT(gsf_img_gamma_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, enCurveType);
+  FIELD(int, TableNo);
+};
+
+
+STRUCT(gsf_img_drc_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, u16Strength);
+  FIELD(int, u16StrengthMax);
+  FIELD(int, u16StrengthMin);
+};
+
+STRUCT(gsf_img_ldci_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, u16BlcCtrl);
+  FIELD(int, stHePosWgt_u8Wgt);
+  FIELD(int, stHeNegWgt_u8Mean);
+};
+
+STRUCT(gsf_img_ldc_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, s32DistortionRatio);
+};
+
+STRUCT(gsf_img_dis_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, enMode); // 1: MODE_6_DOF_GME, 2: MODE_GYRO
+};
+
+
+STRUCT(gsf_img_3dnr_t)
+{
+  FIELD(int, bEnable);
+  FIELD(int, u8strength);
+};
+
+STRUCT(gsf_img_scene_t)
+{
+  FIELD(int, bEnable);
+};
+
+
+STRUCT(gsf_img_all_t)
+{
+   FIELD(int, magic); // 0x55aa;
+   FIELD(gsf_img_scene_t, scene);
+   FIELD(gsf_img_csc_t, csc);
+   FIELD(gsf_img_ae_t, ae);
+   FIELD(gsf_img_dehaze_t, dehaze);
+   FIELD(gsf_img_sharpen_t, sharpen);
+   FIELD(gsf_img_hlc_t, hlc);
+   FIELD(gsf_img_gamma_t, gamma);
+   FIELD(gsf_img_drc_t, drc);
+   FIELD(gsf_img_ldci_t, ldci);
+   FIELD(gsf_img_3dnr_t, _3dnr);
+   FIELD(gsf_img_ldc_t, ldc);
+   FIELD(gsf_img_dis_t, dis);
+};
+
+STRUCT(gsf_scene_ae_t)
+{
+  FIELD(float, compensation_mul); // 0.5 - 1.5;
+};
+
+
+STRUCT(gsf_scene_all_t)
+{
+  FIELD(int, magic); // 0x55aa;
+  FIELD(gsf_scene_ae_t, ae);
+};
+
+
+STRUCT(gsf_vdec_t)
+{
+  FIELD(int, en);  // enable
+  STRING(rtsp,256); // rtsp://user:pwd@192.168.1.60:554/st1
+};
+
+STRUCT(gsf_codec_ipc_t)
+{
+  //1
+  FIELD(gsf_vi_t,    vi);
+  FIELD(gsf_vo_t,    vo);
+  FIELD(gsf_aenc_t,  aenc);
+  FIELD(gsf_lenscfg_t, lenscfg);
+  FIELD(gsf_vdec_t, vdec);
+  
+  //2
+  ARRAY(gsf_venc_t,  venc,  GSF_CODEC_VENC_NUM);
+  ARRAY(gsf_osd_t,   osd,   GSF_CODEC_OSD_NUM);
+  ARRAY(gsf_vmask_t, vmask, GSF_CODEC_VMASK_NUM); 
+  
+  //3
+  FIELD(gsf_img_all_t, img);
+  FIELD(gsf_img_all_t, img1);
+  FIELD(gsf_img_all_t, img2);
+  FIELD(gsf_img_all_t, img3);
+  
+  ARRAY(gsf_scene_all_t, scene, GSF_CODEC_IPC_CHN);
+};
+
+
+STRUCT(gsf_codec_nvr_t)
+{
+  FIELD(gsf_vo_t, vo);
+  ARRAY(gsf_venc_t, venc, GSF_CODEC_VENC_NUM);
+};
+
+
+#pragma pack(pop)

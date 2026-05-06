@@ -1,0 +1,13 @@
+#pragma pack(push, 4)
+
+STRUCT(gsf_srts_t)
+{
+  FIELD(int, en);
+  STRING(url, 256); //"srt://:6666"
+  
+  FIELD(int, recv_en);
+  STRING(recv_url, 256); //"h264://:6666"
+};
+
+
+#pragma pack(pop)

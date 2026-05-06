@@ -1,0 +1,22 @@
+# 统一把文本文件保存为 LF，避免 Windows 检出后把 shell 脚本改成 CRLF，
+# 导致在 Linux/WSL 编译或执行脚本时出现解释器找不到、语法异常等问题。
+* text=auto eol=lf
+
+# 这些文件是二进制产物或资源，禁止 Git 做换行转换，确保交叉编译库、
+# 模型文件和页面资源在推送/拉取后保持字节级一致。
+*.a binary
+*.so binary
+*.ko binary
+*.bin binary
+*.img binary
+*.ubifs binary
+*.jffs2 binary
+*.mp4 binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
