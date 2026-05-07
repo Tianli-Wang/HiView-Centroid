@@ -4,9 +4,13 @@
  
 <!--CODE-->
 <div id="toolbar"></div>
-<video name="videoElement" class="centeredVideo" controls autoplay>
-	Your browser is too old which doesn't support HTML5 video.
-</video>
+<div id="live-video-wrap">
+  <video name="videoElement" class="centeredVideo" controls autoplay>
+	  Your browser is too old which doesn't support HTML5 video.
+  </video>
+  <canvas id="centroid-overlay"></canvas>
+  <div id="centroid-readout">CENTROID: --</div>
+</div>
 
 <!--CODE-->
 <script>
@@ -15,6 +19,12 @@ var streamx = 1
 var audio = false
 var ws = null;
 var record = null;
+var centroidTimer = null;
+var centroidLastStatus = null;
+var clarityHistory = [];
+var clarityWindowMs = 10000;
+var clarityLastUpdateKey = null;
+var clarityLastValid = null;
 
 function flv_load() {
     console.log('isSupported: ' + mpegts.isSupported());
@@ -36,6 +46,7 @@ function flv_load() {
         
          element.width = w2ui['main_layout'].get('main').width - 0;
          element.height = w2ui['main_layout'].get('main').height - $('#toolbar').outerHeight();
+         centroid_sync_overlay_size();
         
         
         if (typeof player !== "undefined") {
@@ -71,6 +82,425 @@ function flv_load() {
         
 }
 
+function centroid_sync_overlay_size() {
+    var element = document.getElementsByName('videoElement')[0];
+    var wrap = document.getElementById('live-video-wrap');
+    var canvas = document.getElementById('centroid-overlay');
+
+    if (!element || !wrap || !canvas) {
+      return;
+    }
+
+    /* video 的 width/height 属性由 flv_load() 按主窗口大小设置。
+     * 叠加层必须使用完全相同的尺寸，否则 web 上画出的 X 会和算法坐标产生比例偏差。
+     */
+    var width = element.width || element.clientWidth;
+    var height = element.height || element.clientHeight;
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    wrap.style.width = width + 'px';
+    wrap.style.height = height + 'px';
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+}
+
+function centroid_clear_overlay() {
+    var canvas = document.getElementById('centroid-overlay');
+    if (!canvas) {
+      return;
+    }
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function centroid_video_rect(srcW, srcH) {
+    var canvas = document.getElementById('centroid-overlay');
+    if (!canvas || srcW <= 0 || srcH <= 0 || canvas.width <= 0 || canvas.height <= 0) {
+      return null;
+    }
+
+    /* video 标签在浏览器里通常会按原始宽高比显示视频，剩余区域填黑边。
+     * 之前直接用 canvas.width/canvas.height 做比例映射，遇到视频被 contain 显示、
+     * 或者流分辨率和窗口比例不一致时，红色 X 会整体偏移。
+     * 这里按算法返回的原图宽高计算“真实视频内容区域”，坐标只映射到该区域内。
+     */
+    var canvasRatio = canvas.width / canvas.height;
+    var srcRatio = srcW / srcH;
+    var rect = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+
+    if (canvasRatio > srcRatio) {
+      rect.h = canvas.height;
+      rect.w = rect.h * srcRatio;
+      rect.x = (canvas.width - rect.w) / 2;
+      rect.y = 0;
+    } else if (canvasRatio < srcRatio) {
+      rect.w = canvas.width;
+      rect.h = rect.w / srcRatio;
+      rect.x = 0;
+      rect.y = (canvas.height - rect.h) / 2;
+    }
+
+    return rect;
+}
+
+function centroid_set_readout(text) {
+    var readout = document.getElementById('centroid-readout');
+    if (readout) {
+      readout.textContent = text;
+    }
+}
+
+function clarity_format(value) {
+    var v = Number(value);
+    if (!isFinite(v)) {
+      return '--';
+    }
+    if (Math.abs(v) >= 1000 || (Math.abs(v) > 0 && Math.abs(v) < 0.001)) {
+      return v.toExponential(2);
+    }
+    return v.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function clarity_panel_size(status, canvas) {
+    var autoW = Math.min(360, Math.max(230, Math.floor(canvas.width * 0.36)));
+    var autoH = Math.min(150, Math.max(118, Math.floor(canvas.height * 0.24)));
+    var cfgW = Number(status && status.clarity_window_w);
+    var cfgH = Number(status && status.clarity_window_h);
+    var panelW = isFinite(cfgW) && cfgW > 0 ? Math.floor(cfgW) : autoW;
+    var panelH = isFinite(cfgH) && cfgH > 0 ? Math.floor(cfgH) : autoH;
+
+    /* clarity_window_w / clarity_window_h 来自 GSF_ID_SVP_CENTROID_CFG。
+     * 用户可以在配置页手动调整清晰度曲线浮窗大小；这里再按当前 canvas 做二次限制，
+     * 避免配置值过大时盖住整幅视频，或配置值过小时坐标轴文字发生重叠。
+     */
+    panelW = Math.max(180, Math.min(panelW, 960));
+    panelH = Math.max(90, Math.min(panelH, 540));
+    panelW = Math.min(panelW, canvas.width - 24);
+    panelH = Math.min(panelH, canvas.height - 24);
+
+    return { w: panelW, h: panelH };
+}
+
+function centroid_ae_status_text(status) {
+    if (!status || !status.ae_enabled) {
+      return '';
+    }
+
+    /* 板端自定义曝光只按当前帧 max_gray 决定下一帧曝光：
+     * ae_adjust=-1 表示本帧亮度高于目标后降曝光，1 表示本帧亮度低于目标后增曝光，0 表示保持。
+     * 这里把曝光时间和调节方向拼到视频左上角，便于现场确认自动曝光是否正在动作。
+     */
+    var expUs = Number(status.ae_exp_us || 0);
+    var adjust = Number(status.ae_adjust || 0);
+    var ret = Number(status.ae_last_ret || 0);
+    var dir = 'hold';
+    if (adjust < 0) {
+      dir = 'down';
+    } else if (adjust > 0) {
+      dir = 'up';
+    }
+    var targetGray = Number(status.ae_target_gray || 0);
+    return ', exp=' + expUs.toFixed(0) + 'us' +
+           (targetGray > 0 ? ', target=' + targetGray.toFixed(0) : '') +
+           ', ae=' + dir +
+           (ret === 0 ? '' : ', ae_ret=' + ret);
+}
+
+function clarity_push_sample(status) {
+    if (!status || !status.running) {
+      return;
+    }
+
+    var valid = !!status.valid;
+    if (clarityLastValid !== null && clarityLastValid !== valid) {
+      clarityHistory = [];
+      clarityLastUpdateKey = null;
+    }
+    clarityLastValid = valid;
+
+    if (!valid) {
+      return;
+    }
+
+    var clarity = Number(status.clarity);
+    if (!isFinite(clarity) || clarity < 0) {
+      return;
+    }
+
+    /* update_ms 由板端质心线程在每次处理完一帧后更新。
+     * 浏览器轮询可能比算法帧率更快，因此用 update_ms 去重，避免同一帧被重复画进曲线。
+     */
+    var updateKey = status.update_ms !== undefined ? String(status.update_ms) : '';
+    if (updateKey && updateKey === clarityLastUpdateKey) {
+      return;
+    }
+    if (updateKey) {
+      clarityLastUpdateKey = updateKey;
+    }
+
+    var now = Date.now();
+    var cutoff = now - clarityWindowMs;
+    clarityHistory.push({ t: now, v: clarity });
+    while (clarityHistory.length > 0 && clarityHistory[0].t < cutoff) {
+      clarityHistory.shift();
+    }
+}
+
+function clarity_draw_window(ctx, canvas, status) {
+    if (!ctx || !canvas || clarityHistory.length <= 0) {
+      return;
+    }
+
+    var panelSize = clarity_panel_size(status, canvas);
+    var panelW = panelSize.w;
+    var panelH = panelSize.h;
+
+    if (panelW < 180 || panelH < 90) {
+      return;
+    }
+
+    var panelX = canvas.width - panelW - 14;
+    var panelY = 14;
+    if (panelX < 14) {
+      panelX = 14;
+    }
+
+    var left = 46;
+    var right = 12;
+    var top = 28;
+    var bottom = 26;
+    var plotX = panelX + left;
+    var plotY = panelY + top;
+    var plotW = panelW - left - right;
+    var plotH = panelH - top - bottom;
+    if (plotW <= 0 || plotH <= 0) {
+      return;
+    }
+
+    var minV = clarityHistory[0].v;
+    var maxV = clarityHistory[0].v;
+    for (var i = 1; i < clarityHistory.length; i++) {
+      minV = Math.min(minV, clarityHistory[i].v);
+      maxV = Math.max(maxV, clarityHistory[i].v);
+    }
+    if (minV === maxV) {
+      var pad = Math.max(Math.abs(maxV) * 0.1, 0.000001);
+      minV -= pad;
+      maxV += pad;
+    }
+
+    var now = Date.now();
+    var startT = now - clarityWindowMs;
+    var valueRange = maxV - minV;
+    var latest = clarityHistory[clarityHistory.length - 1].v;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.58)';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1);
+
+    ctx.font = '12px Helvetica, Arial, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('CLARITY ' + clarity_format(latest), panelX + 10, panelY + 18);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+    ctx.beginPath();
+    ctx.moveTo(plotX, plotY);
+    ctx.lineTo(plotX, plotY + plotH);
+    ctx.lineTo(plotX + plotW, plotY + plotH);
+    ctx.stroke();
+
+    /* 画 y 轴网格和刻度，纵轴范围使用最近 10 秒内的最小/最大清晰度自动缩放。
+     * 这样无论清晰度函数量级是 1e-6 还是 1，曲线都能在浮窗里保持可读。
+     */
+    for (var gy = 0; gy <= 3; gy++) {
+      var ratioY = gy / 3;
+      var y = plotY + plotH - ratioY * plotH;
+      var v = minV + ratioY * valueRange;
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.beginPath();
+      ctx.moveTo(plotX, y);
+      ctx.lineTo(plotX + plotW, y);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+      ctx.fillText(clarity_format(v), panelX + 8, y + 4);
+    }
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.76)';
+    ctx.fillText('F', plotX - 12, plotY - 8);
+    ctx.fillText('-10s', plotX, plotY + plotH + 18);
+    ctx.fillText('0s', plotX + plotW - 16, plotY + plotH + 18);
+    ctx.fillText('t', plotX + plotW + 4, plotY + plotH + 4);
+
+    ctx.strokeStyle = '#44d7ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (var j = 0; j < clarityHistory.length; j++) {
+      var p = clarityHistory[j];
+      var px = plotX + (p.t - startT) / clarityWindowMs * plotW;
+      var py = plotY + plotH - (p.v - minV) / valueRange * plotH;
+      px = Math.max(plotX, Math.min(plotX + plotW, px));
+      py = Math.max(plotY, Math.min(plotY + plotH, py));
+
+      if (j === 0) {
+        ctx.moveTo(px, py);
+      } else {
+        ctx.lineTo(px, py);
+      }
+    }
+    ctx.stroke();
+
+    if (status) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.74)';
+      ctx.fillText(
+        'max=' + Number(status.max_gray || 0).toFixed(0) +
+        (status.ae_enabled ? '/' + Number(status.ae_target_gray || 0).toFixed(0) : '') +
+        '  n50=' + Number(status.half_area || 0).toFixed(0) +
+        (status.ae_enabled ? '  exp=' + Number(status.ae_exp_us || 0).toFixed(0) + 'us' : ''),
+        panelX + 10,
+        panelY + panelH - 8
+      );
+    }
+    ctx.restore();
+}
+
+function centroid_draw_status(status) {
+    var canvas = document.getElementById('centroid-overlay');
+    if (!canvas) {
+      return;
+    }
+
+    centroid_sync_overlay_size();
+    centroid_clear_overlay();
+    var ctx = canvas.getContext('2d');
+
+    if (!status || !status.running) {
+      clarityHistory = [];
+      clarityLastUpdateKey = null;
+      clarityLastValid = null;
+      centroid_set_readout('CENTROID: stopped');
+      return;
+    }
+
+    clarity_push_sample(status);
+
+    if (!status.valid || status.w <= 0 || status.h <= 0) {
+      clarity_draw_window(ctx, canvas, status);
+      centroid_set_readout('CENTROID: no spot, clarity=' + clarity_format(status.clarity) +
+                           centroid_ae_status_text(status));
+      return;
+    }
+
+    var x = Number(status.x);
+    var y = Number(status.y);
+    var srcW = Number(status.w);
+    var srcH = Number(status.h);
+    var area = Number(status.area);
+    var clarity = Number(status.clarity);
+
+    if (!isFinite(x) || !isFinite(y) || srcW <= 0 || srcH <= 0) {
+      clarity_draw_window(ctx, canvas, status);
+      centroid_set_readout('CENTROID: invalid');
+      return;
+    }
+
+    /* 算法输出的是原始图像像素坐标，例如 1920x1080。
+     * 浏览器显示视频时可能会为了保持宽高比而产生黑边，因此先计算真实视频内容区域，
+     * 再把原图坐标映射到该区域，避免 X 相对光斑产生整体偏移。
+     */
+    var videoRect = centroid_video_rect(srcW, srcH);
+    if (!videoRect) {
+      clarity_draw_window(ctx, canvas, status);
+      centroid_set_readout('CENTROID: invalid rect');
+      return;
+    }
+    var drawX = videoRect.x + x * videoRect.w / srcW;
+    var drawY = videoRect.y + y * videoRect.h / srcH;
+    var markSize = 14;
+
+    ctx.save();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#ff3030';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
+    ctx.shadowBlur = 4;
+    ctx.beginPath();
+    ctx.moveTo(drawX - markSize, drawY - markSize);
+    ctx.lineTo(drawX + markSize, drawY + markSize);
+    ctx.moveTo(drawX + markSize, drawY - markSize);
+    ctx.lineTo(drawX - markSize, drawY + markSize);
+    ctx.stroke();
+    ctx.restore();
+    clarity_draw_window(ctx, canvas, status);
+
+    centroid_set_readout(
+      'CENTROID: x=' + x.toFixed(2) +
+      ', y=' + y.toFixed(2) +
+      ', area=' + area.toFixed(0) +
+      ', clarity=' + clarity_format(clarity) +
+      centroid_ae_status_text(status) +
+      ', size=' + srcW + 'x' + srcH
+    );
+}
+
+function centroid_fetch_status() {
+    $.ajax({
+      async: true,
+      type: 'post',
+      url: '/config?id=GSF_ID_SVP_CENTROID&args=G0C0S0',
+      data: '{}',
+      contentType: 'application/json',
+      dataType: 'json',
+      success: function (rsp) {
+        if (rsp && rsp.code === 0 && rsp.data) {
+          centroidLastStatus = rsp.data;
+          centroid_draw_status(centroidLastStatus);
+        } else {
+          centroid_clear_overlay();
+          centroid_set_readout('CENTROID: unavailable');
+        }
+      },
+      error: function () {
+        centroid_clear_overlay();
+        centroid_set_readout('CENTROID: request failed');
+      }
+    });
+}
+
+function centroid_start_poll() {
+    if (centroidTimer) {
+      clearInterval(centroidTimer);
+    }
+    clarityHistory = [];
+    clarityLastUpdateKey = null;
+    clarityLastValid = null;
+
+    /* 质心算法默认 100ms 处理一次，这里用 200ms 轮询即可让画面更新足够顺滑，
+     * 同时避免浏览器向 web 进程发送过多配置请求。
+     */
+    centroid_fetch_status();
+    centroidTimer = setInterval(centroid_fetch_status, 200);
+}
+
+function centroid_stop_poll() {
+    if (centroidTimer) {
+      clearInterval(centroidTimer);
+      centroidTimer = null;
+    }
+    clarityHistory = [];
+    clarityLastUpdateKey = null;
+    clarityLastValid = null;
+    centroid_clear_overlay();
+    centroid_set_readout('CENTROID: --');
+}
 function flv_start() {
     player.play();
 }
@@ -90,6 +520,7 @@ function flv_destroy() {
     player = null;
     console.log("flv_destroy => destroy player!");
   }
+  centroid_stop_poll();
 }
 
 function flv_seekto() {
@@ -104,10 +535,10 @@ function flv_seektoend()
 	//https://www.cnblogs.com/xiahj/p/flvExtend.html
   if (player.buffered.length) 
   {
-    let end = player.buffered.end(0);//��ȡ��ǰbufferedֵ
-    let diff = end - player.currentTime;//��ȡbuffered��currentTime�Ĳ�ֵ
-    if (diff >= 0.5) {//�����ֵ���ڵ���0.5 �ֶ���֡ ����ɸ���������������
-      player.currentTime = player.buffered.end(0) - 0.01;//�ֶ���֡ �����Ļ����Ῠ��
+    let end = player.buffered.end(0);//获取当前buffered值
+    let diff = end - player.currentTime;//获取buffered与currentTime的差值
+    if (diff >= 0.5) {//如果差值大于等于0.5 手动跳帧 这里可根据自身需求来定
+      player.currentTime = player.buffered.end(0) - 0.01;//手动跳帧 不减的话，会卡死
       console.log("live seek to end", player.currentTime);
     }
   }
@@ -137,6 +568,7 @@ $(function () {
                 if(event.target == 'play')
                 {
                   flv_load();
+                  centroid_start_poll();
                 }
                 else if (event.target == 'stream0')
                 {
@@ -167,8 +599,8 @@ $(function () {
                   }
 
                   var Recorder = function(stream) {
-                      var sampleBits = 16;    //���������λ 8, 16
-                      var sampleRate = 48000; //���������
+                      var sampleBits = 16;    //输出采样数位 8, 16
+                      var sampleRate = 48000; //输出采样率
                       var context = new AudioContext();
                       var audioInput = context.createMediaStreamSource(stream);
                       var recorder = context.createScriptProcessor(2048, 1, 1);
@@ -315,9 +747,44 @@ $(function () {
         });
 
     flv_load();
-    setInterval(() => { flv_seektoend() }, 5000); //��ʱˢ����Ƶ
+    centroid_start_poll();
+    setInterval(() => { flv_seektoend() }, 5000); //定时刷新视频
 });
 
 
 
 </script>
+<!--CODE-->
+<style>
+#live-video-wrap {
+    position: relative;
+    overflow: hidden;
+    background: #000;
+}
+
+#live-video-wrap video {
+    display: block;
+    object-fit: contain;
+    background: #000;
+}
+
+#centroid-overlay {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+}
+
+#centroid-readout {
+    position: absolute;
+    left: 12px;
+    top: 10px;
+    padding: 6px 10px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    font-size: 13px;
+    line-height: 18px;
+    pointer-events: none;
+}
+</style>

@@ -115,6 +115,7 @@ int main(int argc, char *argv[])
 
     extern int centroid_start();
     extern int centroid_stop();
+    extern int centroid_is_running();
         
         
     //init listen;
@@ -156,21 +157,33 @@ int main(int argc, char *argv[])
         lpr_alg = svp_parm.svp.lpr_alg;  
       }
 
-      if(centroid_alg != svp_parm.svp.centroid_alg)
+      if(centroid_alg != svp_parm.centroid.centroid_alg)
       {
-        /* 光斑质心算法和其它 SVP 算法一样由 svp_parm.json 控制。
+        /* 光斑质心算法使用独立的 GSF_ID_SVP_CENTROID_CFG 配置类。
          * centroid_alg 从 0 变为非 0 时启动独立线程；从非 0 变为 0 时停止线程。
-         * 串口设备、阈值、输出周期等细节由 svp_parm.centroid 里的参数决定。
+         * 串口设备、阈值、输出周期、清晰度 gain/exposure 等细节也都在 svp_parm.centroid 中。
+         * 如果启动时 VPSS 还没 ready，centroid_start() 里的线程会退出并把 running 清 0，
+         * 下面的重试分支会在配置仍为 1 时继续尝试，避免只失败一次后永远不再启动。
          */
-        if(centroid_alg == 0 && svp_parm.svp.centroid_alg > 0)
+        if(centroid_alg == 0 && svp_parm.centroid.centroid_alg > 0)
         {
           centroid_start();
         }
-        else if(centroid_alg > 0 && svp_parm.svp.centroid_alg == 0)
+        else if(centroid_alg > 0 && svp_parm.centroid.centroid_alg == 0)
         {
           centroid_stop();
         }
-        centroid_alg = svp_parm.svp.centroid_alg;
+        centroid_alg = svp_parm.centroid.centroid_alg;
+      }
+      else if(svp_parm.centroid.centroid_alg > 0 && !centroid_is_running())
+      {
+        /* centroid_alg 已经是 1，但实际线程没有运行，多数情况是上一次启动时
+         * VPSS 通道尚未创建好，或用户刚改过 vpss_grp/vpss_chn。这里每秒轻量重试一次，
+         * 成功后 centroid_is_running() 会返回 true，就不会继续重复启动。
+         */
+        printf("centroid configured on but not running, retry start, VpssGrp:%d, VpssChn:%d\n",
+               svp_parm.centroid.vpss_grp, svp_parm.centroid.vpss_chn);
+        centroid_start();
       }
       
       

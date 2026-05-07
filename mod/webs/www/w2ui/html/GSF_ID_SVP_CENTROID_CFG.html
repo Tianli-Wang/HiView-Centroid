@@ -1,0 +1,119 @@
+<div class="content">
+    <div id="main_view"></div>
+    <div id="example_code"></div>
+</div>
+
+<!--CODE-->
+
+<div id="centroid-req-id" style="width: 400px; height: 220px;"></div>
+<div id="centroid-res-id" style="position:relative;left:500px;top:-220px;width:400px;height:220px"></div>
+<button id="centroid-get-id" class="w2ui-btn" style="position:relative;left:300px;top:-200px;">GET</button>
+<button id="centroid-set-id" class="w2ui-btn" style="position:relative;left:440px;top:-200px;">SET</button>
+<div id="centroid-rsp-id" style="position:relative;left:0px;top:-180px;width:900px;height:360px"></div>
+
+<!--CODE-->
+<script>
+$(function () {
+
+    const options = {
+      mode: 'code'
+    }
+
+    /* 本页面专门维护光斑质心提取配置。
+     * 和 GSF_ID_SVP_CFG 分开后，质心算法开关、抓帧通道、阈值、串口输出、
+     * 清晰度增益和曝光时间都从这里 GET/SET，避免通用 SVP 配置越来越臃肿。
+     */
+    const req_ele = document.getElementById("centroid-req-id")
+    const req_edit = new JSONEditor(req_ele, options)
+    const req_init = {
+        "id": "GSF_ID_SVP_CENTROID_CFG",
+        "args":"G0C0S0",
+        "data":{}
+    }
+    req_edit.set(req_init);
+
+    const res_ele = document.getElementById("centroid-res-id")
+    const res_edit = new JSONEditor(res_ele, options)
+    const res_init = {
+      "code": 0
+    }
+    res_edit.set(res_init);
+
+    const rsp_ele = document.getElementById("centroid-rsp-id")
+    const rsp_edit = new JSONEditor(rsp_ele, options)
+    const rsp_init = {
+      "code": 0,
+      "data": {
+        "centroid_alg": 0,
+        "vpss_grp": 0,
+        "vpss_chn": 1,
+        "threshold": 220,
+        "min_area": 4,
+        "window_size": 64,
+        "interval_ms": 100,
+        "baudrate": 115200,
+        "print_no_spot": 0,
+        "clarity_gain": 1.0,
+        "clarity_exposure": 1.0,
+        "clarity_window_w": 360,
+        "clarity_window_h": 150,
+        "_note": "ae_enable=0 表示关闭 ISP 自动曝光并使用质心线程的手动曝光闭环；ae_enable=1 表示不接管曝光。",
+        "ae_enable": 0,
+        "ae_isp_pipe": 0,
+        "ae_saturation": 255,
+        "ae_target_ratio": 0.8,
+        "ae_min_exp_us": 100,
+        "ae_max_exp_us": 33333,
+        "ae_init_exp_us": 0,
+        "ae_manual_gain": 1024,
+        "uart_dev": "/dev/ttyAMA0"
+      }
+    }
+    rsp_edit.set(rsp_init);
+
+    $("#centroid-get-id").click(function(){
+      const req = req_edit.get();
+
+      $.ajax({
+        async: true,
+        type: "post",
+        url:  '/config?id=' + req.id + '&' + 'args=' + req.args,
+        data: JSON.stringify(req.data),
+        contentType: 'application/json',
+        dataType: "json",
+        success: function (data) {
+          rsp_edit.set(data);
+        },
+        error: function () {
+          res_edit.set({"code": -1, "msg": "GET request failed"});
+        }
+      });
+    });
+
+    $("#centroid-set-id").click(function(){
+      const req = req_edit.get();
+      const rsp = rsp_edit.get();
+      var args = req.args;
+
+      /* SET 时沿用工程原有约定：把 args 中的 G0 替换为 G1。
+       * 请求体直接使用右侧 GET 回来的 data，用户只需要修改其中字段。
+       */
+      $.ajax({
+        async: true,
+        type: "post",
+        url:  '/config?id=' + req.id + '&' + 'args=' + args.replace("G0","G1"),
+        data: JSON.stringify(rsp.data),
+        contentType: 'application/json',
+        dataType: "json",
+        success: function (data) {
+          res_edit.set(data);
+        },
+        error: function () {
+          res_edit.set({"code": -1, "msg": "SET request failed"});
+        }
+      });
+    });
+
+});
+
+</script>

@@ -15,13 +15,15 @@ extern "C" {
 #define GSF_PUB_SVP      "ipc:///tmp/svp_pub"
 
 enum {
-    GSF_ID_SVP_CFG    = 1,  // gsf_svp_t;
+    GSF_ID_SVP_CFG    = 1,  // gsf_svp_t，SVP 通用算法开关，不包含质心提取参数。
     GSF_ID_SVP_MD     = 2,  // ch, gsf_svp_md_t
     GSF_ID_SVP_LPR    = 3,  // ch, gsf_svp_lpr_t
     GSF_ID_SVP_YOLO   = 4,  // ch, gsf_svp_yolo_t
     GSF_ID_SVP_CFACE  = 5,  // ch, gsf_svp_cface_t
     GSF_ID_SVP_FACE   = 6,  // ch, /path/xxx.jpg;
     GSF_ID_SVP_FEATURE= 7,  //
+    GSF_ID_SVP_CENTROID = 8,  // 只读获取最新光斑质心坐标，用于 web 端画 X 标记。
+    GSF_ID_SVP_CENTROID_CFG = 9,  // gsf_svp_centroid_t，质心提取独立配置类，包含算法开关和清晰度函数参数。
     GSF_ID_SVP_END
 };
 
@@ -41,7 +43,7 @@ enum {
 
 typedef struct {
   int thr;        //thr 
-  int rect[4];    //����λ��
+  int rect[4];    //区域位置
 }gsf_md_result_t;
 
 typedef struct {
@@ -52,14 +54,14 @@ typedef struct {
 }gsf_svp_mds_t;
 
 typedef struct {
-	char 	  number[16];         //���ƺ���
-	char 	  color[8];  		      //������ɫ
-	float   number_realty;      //�������Ŷ�
-	int     rect[4];            //��������
-	int     type ;              //��������
-	float   letter_realty[16];  //�ַ����Ŷ�
-	float   vertangle;          //��ֱ�Ƕ�
-	float   horzangle;          //ˮƽ�Ƕ�
+	char 	  number[16];         //车牌号码
+	char 	  color[8];  		      //车牌颜色
+	float   number_realty;      //车牌置信度
+	int     rect[4];            //车牌坐标
+	int     type ;              //车牌类型
+	float   letter_realty[16];  //字符置信度
+	float   vertangle;          //垂直角度
+	float   horzangle;          //水平角度
 }gsf_lpr_result_t;
 
 typedef struct {

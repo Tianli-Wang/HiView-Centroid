@@ -5,7 +5,6 @@ STRUCT(gsf_svp_t)
   FIELD(int, md_alg);
   FIELD(int, lpr_alg);
   FIELD(int, yolo_alg);
-  FIELD(int, centroid_alg); // 光斑质心算法开关：0 关闭，>0 启动质心线程并通过串口输出。
 #if defined(GSF_CPU_3519d)
 #warning "GSF_CPU_3519d add vpssGrp,vpssChn"
   ARRAY(int, vpssGrp, GSF_SVP_CHN);
@@ -63,14 +62,57 @@ STRUCT(gsf_svp_cface_t)
 
 STRUCT(gsf_svp_centroid_t)
 {
+  FIELD(int, centroid_alg);  // 光斑质心算法开关：0 关闭，>0 启动质心线程并通过串口输出。
   FIELD(int, vpss_grp);      // 抓帧 VPSS 组，Hi3516DV300 默认使用 0。
   FIELD(int, vpss_chn);      // 抓帧 VPSS 通道，当前工程算法通道默认使用 1。
   FIELD(int, threshold);     // 亮斑二值化阈值：1~254 固定阈值，其它值使用 OTSU 自动阈值。
   FIELD(int, min_area);      // 最小亮斑面积，低于该面积认为是噪声。
+  FIELD(int, window_size);   // 质心局部计算窗口边长，单位像素；以最亮点为中心开小窗，避免远处噪声参与矩计算。
   FIELD(int, interval_ms);   // 串口输出间隔，单位毫秒，过小会占用更多 VPSS 和 CPU 时间。
   FIELD(int, baudrate);      // 串口波特率，常用 115200。
   FIELD(int, print_no_spot); // 是否输出未检测到亮斑的帧：0 只输出有效质心，1 输出所有检测结果。
+  FIELD(double, clarity_gain);     // 清晰度归一化用的增益设定值，必须大于 0，默认 1.0。
+  FIELD(double, clarity_exposure); // 清晰度归一化用的曝光时间，必须大于 0，默认 1.0，单位按现场设定保持一致。
+  FIELD(int, clarity_window_w); // web 实时预览中清晰度曲线浮动窗口宽度，单位像素；用于现场按屏幕大小手动调整。
+  FIELD(int, clarity_window_h); // web 实时预览中清晰度曲线浮动窗口高度，单位像素；用于现场按屏幕大小手动调整。
+  FIELD(int, ae_enable);      // ISP 自动曝光开关：0 关闭 ISP 自动曝光/自动增益，并由质心线程按最大灰度调手动曝光；1 不接管曝光并恢复 ISP 原配置。
+  FIELD(int, ae_isp_pipe);    // 需要控制的 ISP Pipe 号，Hi3516DV300 单 Sensor 场景通常为 0。
+  FIELD(int, ae_saturation);  // 最大灰度饱和值，8bit 图像默认 255；达到该值时认为当前帧已饱和。
+  FIELD(double, ae_target_ratio); // 自动曝光目标亮度比例，默认 0.8，表示把当前最大灰度控制在 ae_saturation 的 80% 附近。
+  FIELD(int, ae_min_exp_us);  // 自动曝光允许的最小曝光时间，单位微秒，用于避免连续减半后曝光掉到 0。
+  FIELD(int, ae_max_exp_us);  // 自动曝光允许的最大曝光时间，单位微秒，用于避免连续加倍后超过现场帧率/传感器能力。
+  FIELD(int, ae_init_exp_us); // 启动自定义曝光时的初始曝光时间，单位微秒；0 表示读取 ISP 当前曝光作为起点。
+  FIELD(int, ae_manual_gain); // 固定手动增益，HiSilicon 22.10 定点格式，1024 表示 1x；开启自定义曝光后 AGain/DGain/ISPDGain 都固定为该值。
   STRING(uart_dev, 64);      // 串口设备，例如 /dev/ttyAMA0、/dev/ttyAMA1 或 /dev/ttyS0。
+};
+
+STRUCT(gsf_svp_centroid_status_t)
+{
+  FIELD(int, running);       // 质心线程运行状态：1 表示已启动并正在尝试抓帧，0 表示当前未运行。
+  FIELD(int, valid);         // 当前结果是否有效：1 表示检测到光斑，0 表示暂无有效光斑或算法未启动。
+  FIELD(int, chn);           // 输出结果对应的 VPSS 通道号，用于和当前预览通道做排查对照。
+  FIELD(int, w);             // 检测用原始图像宽度，web 端按该宽度把 x 坐标映射到视频显示区域。
+  FIELD(int, h);             // 检测用原始图像高度，web 端按该高度把 y 坐标映射到视频显示区域。
+  FIELD(float, x);           // 光斑灰度加权质心 x 坐标，原点在图像左上角，单位为像素。
+  FIELD(float, y);           // 光斑灰度加权质心 y 坐标，原点在图像左上角，单位为像素。
+  FIELD(double, area);       // 光斑连通域面积，单位为像素，用来判断当前点是否可信。
+  FIELD(int, max_gray);      // 当前帧强度图最大灰度值，范围通常为 0~255。
+  FIELD(int, half_area);     // 灰度值超过 max_gray 50% 的像元数量，是清晰度函数的分母之一。
+  FIELD(double, clarity);    // 清晰度函数：max_gray / clarity_gain / clarity_exposure / half_area。
+  FIELD(double, clarity_gain);     // 本次计算使用的增益设定值，web 端显示时用于确认归一化参数。
+  FIELD(double, clarity_exposure); // 本次计算使用的曝光时间，web 端显示时用于确认归一化参数。
+  FIELD(int, clarity_window_w); // 本次 web 清晰度曲线浮窗宽度，web 端按该值绘制并自动限制在视频区域内。
+  FIELD(int, clarity_window_h); // 本次 web 清晰度曲线浮窗高度，web 端按该值绘制并自动限制在视频区域内。
+  FIELD(int, ae_enabled);    // 本次状态对应的自定义曝光接管状态：1 表示正在使用最大灰度调节曝光，0 表示未接管。
+  FIELD(int, ae_exp_us);     // 当前写入 ISP 的手动曝光时间，单位微秒；web 端可用它观察自动曝光是否在变化。
+  FIELD(int, ae_target_exp_us); // 本帧根据最大灰度计算出的目标曝光时间，单位微秒；未调节时等于 ae_exp_us。
+  FIELD(int, ae_adjust);     // 本帧曝光调节方向：-1 表示向目标亮度降曝光，0 表示保持，1 表示向目标亮度增曝光。
+  FIELD(int, ae_saturation); // 本次判断使用的饱和灰度阈值，默认 255。
+  FIELD(int, ae_target_gray); // 本次自动曝光使用的目标最大灰度，默认约为 255*0.8=204。
+  FIELD(int, ae_last_ret);   // 最近一次调用 HI_MPI_ISP_SetExposureAttr 的返回值，0 表示成功，负值可用于排查 ISP 接口失败。
+  FIELD(uint64, pts);        // VPSS 帧时间戳，json 里按十六进制字符串输出，便于保留 64 位精度。
+  FIELD(uint64, update_ms);  // 本结果写入共享状态时的单调时间，json 里按十六进制字符串输出。
+  FIELD(int, age_ms);        // web 查询瞬间距离最近一次处理结果的时间差，单位毫秒，用来判断坐标是否过期。
 };
 
 

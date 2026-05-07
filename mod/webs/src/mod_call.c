@@ -3,6 +3,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <assert.h>
+#include <string.h>
 
 #include "inc/gsf.h"
 #include "mod_call.h"
@@ -73,6 +74,8 @@ sjb_cb_t sjb_maps[GSF_MOD_ID_END<<8|255] = {
 //svp;
   {GSF_ID_SVP_YOLO,    "GSF_ID_SVP_YOLO", GSF_IPC_SVP,(sjb_cb*)sjb_bind_gsf_svp_yolo_t,   (sjb_cb*)sjb_bind_gsf_svp_yolo_t,sizeof(gsf_svp_yolo_t), sizeof(gsf_svp_yolo_t),0},
   {GSF_ID_SVP_CFG,    "GSF_ID_SVP_CFG",   GSF_IPC_SVP,(sjb_cb*)sjb_bind_gsf_svp_t,        (sjb_cb*)sjb_bind_gsf_svp_t,sizeof(gsf_svp_t), sizeof(gsf_svp_t),0},
+  {GSF_ID_SVP_CENTROID,"GSF_ID_SVP_CENTROID",GSF_IPC_SVP,NULL,                            (sjb_cb*)sjb_bind_gsf_svp_centroid_status_t,0, sizeof(gsf_svp_centroid_status_t),0},
+  {GSF_ID_SVP_CENTROID_CFG,"GSF_ID_SVP_CENTROID_CFG",GSF_IPC_SVP,(sjb_cb*)sjb_bind_gsf_svp_centroid_t,(sjb_cb*)sjb_bind_gsf_svp_centroid_t,sizeof(gsf_svp_centroid_t), sizeof(gsf_svp_centroid_t),0},
   
   {GSF_ID_WEBS_CFG,   "GSF_ID_WEBS_CFG",  GSF_IPC_WEBS,(sjb_cb*)sjb_bind_gsf_webs_cfg_t,  (sjb_cb*)sjb_bind_gsf_webs_cfg_t,sizeof(gsf_webs_cfg_t), sizeof(gsf_webs_cfg_t),0},
   {GSF_ID_APP_CHSRC,  "GSF_ID_APP_CHSRC", GSF_IPC_APP,(sjb_cb*)sjb_bind_gsf_chsrc_t,      (sjb_cb*)sjb_bind_gsf_chsrc_t,sizeof(gsf_chsrc_t),sizeof(gsf_chsrc_t),1},
@@ -99,7 +102,12 @@ int mod_call(char *str, char *args, char *in, char *out, int osize)
   {
     if(sjb_maps[i].id == 0)
       break;
-    if(!strncmp(sjb_maps[i].str, str, strlen(sjb_maps[i].str)))
+    /* 配置 id 必须精确匹配。
+     * 之前使用前缀匹配时，GSF_ID_SVP_CENTROID_CFG 会先命中
+     * GSF_ID_SVP_CENTROID，导致 SET 被发到只读状态接口，页面看起来
+     * 没有报错但配置不会保存。这里改为 strcmp，避免所有同前缀 id 串台。
+     */
+    if(!strcmp(sjb_maps[i].str, str))
     {
       j = i;
       printf("str[%s], maps_str[%s], maps_id[%d]\n", str, sjb_maps[i].str, sjb_maps[i].id);

@@ -35,7 +35,7 @@ mkdir -p $INST/upg;
 cp $PROJ/tools/install.sh $INST/upg/ -arfv;
 cd $INST; tar Jcf ./upg/app.xz ko lib bin cfg www model; cd -;
 cd $INST/upg; $PROJ/tools/minizip -o -p 123 cam16d.upg app.xz install.sh;
-# 最终升级包固定复制到工程 upg 目录；Windows 下对应 E:\hisi\HIVIEW-master\upg\cam16d.upg。
+# 最终升级包固定复制到工程 upg 目录；Windows 下对应 当前工程目录\upg\cam16d.upg。
 mkdir -p $PROJ/upg;
 cp -vf ./cam16d.upg $PROJ/upg/;
 cd -;
